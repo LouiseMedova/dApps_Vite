@@ -1,0 +1,90 @@
+pragma soliditypp ^0.4.3;
+
+contract NFToken {
+
+    // A mapping from NFT ID to the address that owns it
+    mapping(uint256 => address) idToOwner;
+
+    // A mapping from NFT ID to approved address
+    mapping (uint256 => address)  idToApproval;
+
+    // A mapping from owner address to count of their tokens.
+    mapping (address => uint256) ownerToNFTokenCount;
+
+    event Transfer(
+        address indexed _from,
+        address indexed _to,
+        uint256 indexed _tokenId
+    );
+
+    event Approval(
+        address indexed _from,
+        address indexed _to,
+        uint256 indexed _tokenId
+    );
+
+    message replyData(uint);
+
+    onMessage balanceOf(address _owner)  {
+        require(_owner != address(0));
+        send(msg.sender, replyData(ownerToNFTokenCount[_owner]));
+    }
+
+    onMessage transferFrom(address _from, address _to, uint _tokenId) {
+        address tokenOwner = idToOwner[_tokenId];
+        require(tokenOwner == _from);
+        require(_to != address(0));
+        _transfer(_to, _tokenId);
+        emit Transfer(_from , _to, _tokenId);
+    }
+
+    onMessage approve(address _approved, uint256 _tokenId) {
+        address tokenOwner = idToOwner[_tokenId];
+        require(_approved != tokenOwner);
+        idToApproval[_tokenId] = _approved;
+        emit Approval(tokenOwner, _approved, _tokenId);
+  }
+
+
+    function _mint(address _to, uint256 _tokenId) internal {
+        require(_to != address(0));
+        require(idToOwner[_tokenId] == address(0));
+        _addNFToken(_to, _tokenId);
+        emit Transfer(address(0), _to, _tokenId);
+    }
+
+    function _addNFToken(address _to, uint256 _tokenId) internal {
+        idToOwner[_tokenId] = _to;
+        ownerToNFTokenCount[_to] ++;
+    }
+
+    function _removeNFToken(address _from, uint256 _tokenId) internal {
+        require(idToOwner[_tokenId] == _from);
+        ownerToNFTokenCount[_from] --;
+        delete idToOwner[_tokenId];
+    }
+
+    function _transfer(address _to, uint256 _tokenId) internal {
+        address tokenOwner = idToOwner[_tokenId];
+        require(tokenOwner == msg.sender  || idToApproval[_tokenId] == msg.sender);
+        address _from = idToOwner[_tokenId];
+         _removeNFToken(_from, _tokenId);
+
+        _addNFToken(_to, _tokenId);
+    }
+
+    function _getOwnerNFTCount(address _owner) public view returns (uint256)
+        {
+            return ownerToNFTokenCount[_owner];
+        }
+
+    function _getOwnerOfNFT(uint256 _tokenId) public view returns (address)
+        {
+            return idToOwner[_tokenId];
+        }
+
+ }
+
+
+
+ 

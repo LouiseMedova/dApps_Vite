@@ -1,0 +1,24 @@
+pragma soliditypp ^0.4.3;
+import "./NFToken.solpp";
+
+ contract NFT is NFToken {
+
+     uint tokenBalance;
+     uint nextTokenId;
+     onMessage createToken() {
+            _mint(msg.sender, nextTokenId);
+            nextTokenId++;
+     }
+
+
+    getter getBalance(address _owner) returns(uint){
+        return _getOwnerNFTCount(_owner);
+    }
+
+    getter ownerOf(uint256 _tokenId) returns(address){
+        return _getOwnerOfNFT(_tokenId);
+    }
+     
+ }
+
+ 
