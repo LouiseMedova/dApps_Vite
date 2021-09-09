@@ -6,6 +6,8 @@ import {
   ABI
 } from './config';
 import { PRIVATE_KEY } from './secrets';
+import Header from './Header';
+import { log } from 'util';
 const { WS_RPC } = require('@vite/vitejs-ws');
 const { client, ViteAPI, wallet, utils, abi, accountBlock, keystore } = require('@vite/vitejs');
 
@@ -13,6 +15,9 @@ const { client, ViteAPI, wallet, utils, abi, accountBlock, keystore } = require(
 function App() {
 
   const [num, setNum] = useState(undefined);
+  const [owner, setOwner] = useState(undefined);
+  //const [accounts, setAccounts] = useState(undefined);
+  const [selectedAccount, setSelectedAccount] = useState(undefined);
 
   const seed = PRIVATE_KEY;
   const connection = new WS_RPC('ws://localhost:23457');
@@ -22,33 +27,27 @@ function App() {
 
 
   const myAccount = wallet.getWallet(seed).deriveAddress(0);
+  console.log(wallet.getWallet(seed))
   const recipientAccount = wallet.getWallet(seed).deriveAddress(1);
   const account2 = wallet.getWallet(seed).deriveAddress(2);
-  console.log(num);
+  
+  const accounts = new Array(10).fill(undefined).map((account,i) => wallet.getWallet(seed).deriveAddress(i));
+  //  setAccounts(accounts);
+  
+  console.log(accounts);
   // fill in contract info
   const CONTRACT = {
       binary: binary,    // binary code
       abi: ABI,
       offChain: off_chain,  // binary offchain code
-      address: 'vite_2905b4f0bebc6519a303f3f9ed5ad0ecd0c16b168722b6df17',   // set address of your deployed contract
+      address: 'vite_cc92c2495d83340d4f95728505d536e6e264aebde745075dbf',   // set address of your deployed contract
   }
 
-  useEffect(() => {
-    const init = async () => {
-      getterValues()
-
-    }
-    init();
-
-  }, []);
-
-async  function getterValues() {
-    let params = [myAccount.address];
-    console.log(myAccount.address);
-    console.log(recipientAccount.address);
-    console.log(CONTRACT.abi[4]);
-    console.log(ABI);
-    let data = abi.encodeFunctionCall(CONTRACT.abi[4], params);
+  
+  
+async  function getterValues(account) {
+    let params = [account.address];
+    let data = abi.encodeFunctionCall(CONTRACT.abi[6], params);
     let dataBase64 = utils._Buffer.from(data, 'hex').toString('base64');
 
     const result  = await provider.request('contract_callOffChainMethod', {
@@ -56,12 +55,31 @@ async  function getterValues() {
             'offChainCode':CONTRACT.offChain,
             'data':dataBase64      
         });
-        const res =  parseInt(Buffer.from(result, 'base64').toString('hex'));
+        const res =  parseInt(Buffer.from(result, 'base64').toString('hex'),16);
         console.log(res);
         setNum(res);
 }
 
+async  function getOwner(e) {
+  e.preventDefault();
+  const tokenId = e.target.elements[0].value;
+  let params = [tokenId];
+  let data = abi.encodeFunctionCall(CONTRACT.abi[1], params);
+  console.log(CONTRACT.abi);
+  let dataBase64 = utils._Buffer.from(data, 'hex').toString('base64');
+
+  const result  = await provider.request('contract_callOffChainMethod', {
+          'selfAddr':CONTRACT.address,
+          'offChainCode':CONTRACT.offChain,
+          'data':dataBase64      
+      });
+      console.log(Buffer.from(result, 'base64').toString('hex'));
+      const owner =  parseInt(Buffer.from(result, 'base64').toString('hex'),16);
+      console.log(owner);
+      setOwner(owner);
+}
 async  function callContract(account, methodName, abi, params, amount) {
+  console.log(account.address);
    const block = accountBlock.createAccountBlock('callContract', {
             address: account.address,
             abi,
@@ -71,14 +89,12 @@ async  function callContract(account, methodName, abi, params, amount) {
             amount
     }).setProvider(provider).setPrivateKey(account.privateKey);
 
-       console.log(block);
-
     await block.autoSetPreviousAccountBlock();
     const result = await block.sign().send();
     console.log('call success', result);
 }
 async  function createToken() {
-      await callContract(myAccount, 'createToken', CONTRACT.abi, []);
+      await callContract(selectedAccount, 'createToken', CONTRACT.abi, []);
 }
 
 async  function transfer(e) {
@@ -86,14 +102,14 @@ async  function transfer(e) {
   const from = e.target.elements[0].value;
   const to = e.target.elements[1].value;
   const tokenId = e.target.elements[2].value;
-  await callContract(account2, 'transferFrom', CONTRACT.abi, [from, to, tokenId]);
+  await callContract(selectedAccount, 'safeTransferFrom', CONTRACT.abi, [from, to, tokenId]);
 }
 
 async  function approve(e) {
   e.preventDefault();
   const approved  = e.target.elements[0].value;
   const tokenId = e.target.elements[1].value;
-  await callContract(myAccount, 'approve', CONTRACT.abi, [approved, tokenId]);
+  await callContract(selectedAccount, 'approve', CONTRACT.abi, [approved, tokenId]);
 }
 
 async function receiveTransaction(account) {
@@ -112,21 +128,48 @@ async function receiveTransaction(account) {
     await ab.autoSetPreviousAccountBlock();
     const result = await ab.sign().send();
     console.log('receive success', result);
+} 
+
+const selectAccount = account => {
+  setSelectedAccount(account);
+}
+useEffect(() => {
+  const init = async () => {
+    console.log(selectedAccount);
+    setSelectedAccount(accounts[0]);
+    getterValues(accounts[0]);
+
+  }
+  init();
+
+}, []);
+
+
+if(typeof selectedAccount === 'undefined') {
+  return <div>Loading...</div>
 }
 
   return (
-    <div className="container">
+    <div id="app">
+      <Header
+          contract={CONTRACT.address}
+          accounts={accounts}
+          selectedAccount={selectedAccount}
+          selectAccount={selectAccount}
+      />
+      <main className="container-fluid">
         <div className="row">
-        <div className="col-sm-12">
+          <div className="col-sm- first-col">
           <button 
                   onClick={e => createToken()}
                   type="submit" 
                   className="btn btn-primary"
                 >
                   Create Token
-            </button>        
-        </div>
-        <div className="col-sm-12">
+            </button>  
+          </div>
+        
+        <div className="col-sm-8">
           <h2>Transfer token</h2>
           <form onSubmit={e => transfer(e)}>
             <div className="form-group">
@@ -178,10 +221,27 @@ async function receiveTransaction(account) {
           </form>
         </div>
       </div>
-       <p>Address: {myAccount.address}</p>
+       
       {num > 0 ? (
         <p>NFTTokens: {num}</p>
       ) : null}
+      <button 
+        type="button" 
+        onClick={() => getterValues(selectedAccount)}
+        >My balance
+      </button>
+      <h2>Approve token</h2>
+          <form onSubmit={e => getOwner(e)}>
+            <div className="form-group">
+              <input 
+                placeholder="tokenId"
+                className="mt-8 border rounded p-4"
+                type="text" 
+                id="tokenId" />
+            </div>
+            <button type="submit" className="btn btn-primary">Owner of token</button>
+          </form>
+          </main>
     </div>
   );
 }

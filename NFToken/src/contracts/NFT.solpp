@@ -3,6 +3,9 @@ import "./NFToken.solpp";
 
  contract NFT is NFToken {
 
+     constructor() NFToken("MY VITE TOKEN", "MVT") public {
+
+     }
      uint tokenBalance;
      uint nextTokenId;
      onMessage createToken() {
@@ -15,7 +18,7 @@ import "./NFToken.solpp";
         return _getOwnerNFTCount(_owner);
     }
 
-    getter ownerOf(uint256 _tokenId) returns(address){
+    getter getOwnerOf(uint256 _tokenId) returns(address){
         return _getOwnerOfNFT(_tokenId);
     }
      
