@@ -5,10 +5,14 @@ function Header({
   accounts, 
   contract, 
   selectedAccount,
+  balance,
   selectAccount}) {
   return (
     <header id="header" className="card">
       <div className="row">
+        <div className="col-sm-3">
+        <div className="d-inline p-2 bg-dark text-white">My balance: {balance}</div>
+        </div>
         <div className="col-sm-3 flex">
           <Dropdown 
               items={accounts.map((account) => ({

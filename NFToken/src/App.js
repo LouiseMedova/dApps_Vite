@@ -1,89 +1,62 @@
 import './App.css';
 import React, { useEffect, useState } from 'react';
-import {
-  binary,
-  off_chain,
-  ABI
-} from './config';
+import bs58 from 'bs58';
 import { PRIVATE_KEY } from './secrets';
+import { Image, Card, Col } from "react-bootstrap";
+
 import Header from './Header';
-import { log } from 'util';
-const { WS_RPC } = require('@vite/vitejs-ws');
-const { client, ViteAPI, wallet, utils, abi, accountBlock, keystore } = require('@vite/vitejs');
+import CreateToken from './CreateToken';
+import MyTokens from './MyTokens';
+import AllTokens from './AllTokens';
 
+const {  utils, abi, accountBlock } = require('@vite/vitejs');
+const IPFS = require('ipfs-api');
 
-function App() {
+const ipfs = new IPFS({ host: 'ipfs.infura.io', port: 5001, protocol: 'https' });
 
-  const [num, setNum] = useState(undefined);
-  const [owner, setOwner] = useState(undefined);
-  //const [accounts, setAccounts] = useState(undefined);
+function App({provider, accounts, contract}) {
+
+  const [balance, setBalance] = useState(undefined);
   const [selectedAccount, setSelectedAccount] = useState(undefined);
-
-  const seed = PRIVATE_KEY;
-  const connection = new WS_RPC('ws://localhost:23457');
-  const provider = new ViteAPI(connection, () => {
-      console.log("client connected");
+  const [tokens, setTokens] = useState([]);
+  const [allTokens, setAllTokens] = useState([]);
+  const [fileBuffer, setFileBuffer] = useState(undefined);
+  const [hiddenForms, setHiddenForms] = useState({
+    createTokenForm: true,
+    myTokensForm: true,
+    allTokensForm: true
   });
 
 
-  const myAccount = wallet.getWallet(seed).deriveAddress(0);
-  console.log(wallet.getWallet(seed))
-  const recipientAccount = wallet.getWallet(seed).deriveAddress(1);
-  const account2 = wallet.getWallet(seed).deriveAddress(2);
-  
-  const accounts = new Array(10).fill(undefined).map((account,i) => wallet.getWallet(seed).deriveAddress(i));
-  //  setAccounts(accounts);
-  
-  console.log(accounts);
-  // fill in contract info
-  const CONTRACT = {
-      binary: binary,    // binary code
-      abi: ABI,
-      offChain: off_chain,  // binary offchain code
-      address: 'vite_cc92c2495d83340d4f95728505d536e6e264aebde745075dbf',   // set address of your deployed contract
-  }
-
-  
-  
-async  function getterValues(account) {
-    let params = [account.address];
-    let data = abi.encodeFunctionCall(CONTRACT.abi[6], params);
+async  function getValues(method, params) {
+    let i;
+    for(i = 0; i < contract.abi.length; i++ ) {
+      if(contract.abi[i].name === method){
+        break;
+      }
+    }
+    console.log(contract.abi[i]);
+    console.log(params);
+    let data = abi.encodeFunctionCall(contract.abi[i], params);
     let dataBase64 = utils._Buffer.from(data, 'hex').toString('base64');
 
     const result  = await provider.request('contract_callOffChainMethod', {
-            'selfAddr':CONTRACT.address,
-            'offChainCode':CONTRACT.offChain,
+            'selfAddr':contract.address,
+            'offChainCode':contract.offChain,
             'data':dataBase64      
         });
-        const res =  parseInt(Buffer.from(result, 'base64').toString('hex'),16);
-        console.log(res);
-        setNum(res);
+        
+    return result;
 }
 
-async  function getOwner(e) {
-  e.preventDefault();
-  const tokenId = e.target.elements[0].value;
-  let params = [tokenId];
-  let data = abi.encodeFunctionCall(CONTRACT.abi[1], params);
-  console.log(CONTRACT.abi);
-  let dataBase64 = utils._Buffer.from(data, 'hex').toString('base64');
 
-  const result  = await provider.request('contract_callOffChainMethod', {
-          'selfAddr':CONTRACT.address,
-          'offChainCode':CONTRACT.offChain,
-          'data':dataBase64      
-      });
-      console.log(Buffer.from(result, 'base64').toString('hex'));
-      const owner =  parseInt(Buffer.from(result, 'base64').toString('hex'),16);
-      console.log(owner);
-      setOwner(owner);
-}
+
 async  function callContract(account, methodName, abi, params, amount) {
-  console.log(account.address);
+  
    const block = accountBlock.createAccountBlock('callContract', {
             address: account.address,
             abi,
-            toAddress: CONTRACT.address,
+            toAddress: contract.address,
             methodName: methodName,
             params,
             amount
@@ -93,23 +66,93 @@ async  function callContract(account, methodName, abi, params, amount) {
     const result = await block.sign().send();
     console.log('call success', result);
 }
-async  function createToken() {
-      await callContract(selectedAccount, 'createToken', CONTRACT.abi, []);
+
+async  function createMetaToken(e) {
+
+  console.log(fileBuffer);
+  const ipfsHashFile = await ipfs.add(fileBuffer);
+  console.log(ipfsHashFile[0].hash);
+  const data = JSON.stringify({ 
+        name: e.target.elements[0].value,
+        desc: e.target.elements[1].value,
+        img:  ipfsHashFile[0].hash
+      }, null, ' ');
+
+      console.log(data);
+      const buffer = await Buffer.from(data);
+      console.log(buffer);
+      await ipfs.add(buffer, (err, ipfsHash) => {
+        const shorten = (hash) => '0x' + bs58.decode(hash).slice(2).toString('hex');
+        const short_hash = shorten(ipfsHash[0].hash);
+  
+     callContract(selectedAccount, 'createToken', contract.abi, [short_hash]);
+
+      });
+  
 }
 
-async  function transfer(e) {
+async  function transfer(e, id) {
   e.preventDefault();
-  const from = e.target.elements[0].value;
-  const to = e.target.elements[1].value;
-  const tokenId = e.target.elements[2].value;
-  await callContract(selectedAccount, 'safeTransferFrom', CONTRACT.abi, [from, to, tokenId]);
+  const from = await getOwner(id);
+  const to = e.target.elements[0].value;
+  await callContract(selectedAccount, 'safeTransferFrom', contract.abi, [from[0], to, id]);
 }
 
-async  function approve(e) {
+async function getMetaData (id) {
+  const result = await getValues('getTokenURI', [id]);
+  const lengthen = (short) => bs58.encode(Buffer.from('1220' + short.slice(2), 'hex'));
+  const hash = lengthen("0x"+ Buffer.from(result, 'base64').toString('hex'));
+  const content = fetch("https://gateway.ipfs.io/ipfs/"+hash)
+                      .then((result) =>{return result.text()} );
+  const getData =  JSON.parse(await content);
+  getData.id = id;
+  return getData;
+  //console.log(getData);             
+}
+
+async function getBalance (account) { 
+  const result = await getValues('getBalance', [account.address]);
+  const balance =  parseInt(Buffer.from(result, 'base64').toString('hex'),16);
+  setBalance(balance);
+}
+
+async function getTokens (account) { 
+  const result = await getValues('getTokensOf', [account.address]);
+  const param = Buffer.from(result, 'base64').toString('hex');
+  const tokenIds = (abi.decodeParameters(['uint256[]'],param))[0];
+  console.log('tokenIds', tokenIds);
+  const tokens = [];
+  for (let i = 0; i < tokenIds.length; i++) {
+      const token =  await getMetaData(tokenIds[i]);
+      tokens.push(token);
+  }
+  console.log(tokens);
+  setTokens(tokens);
+}
+
+async  function getOwner(tokenId) {
+  const result = await getValues('getOwnerOf', [tokenId]);
+  const param = Buffer.from(result, 'base64').toString('hex');
+  let owner = abi.decodeParameters(['address'],param);
+  return owner;
+}
+
+async  function getAllTokens() {
+  const result = await getValues('getTotalNumberOfTokens', []);
+  const param = Buffer.from(result, 'base64').toString('hex');
+  let totalNumber = abi.decodeParameters(['uint256'],param);
+  const tokens = [];
+  for (let i = 0; i < totalNumber; i++) {
+    const token =  await getMetaData(i);
+    tokens.push(token);
+}
+setAllTokens(tokens);
+
+}
+async  function approve(e, id) {
   e.preventDefault();
   const approved  = e.target.elements[0].value;
-  const tokenId = e.target.elements[1].value;
-  await callContract(selectedAccount, 'approve', CONTRACT.abi, [approved, tokenId]);
+  await callContract(selectedAccount, 'approve', contract.abi, [approved,id]);
 }
 
 async function receiveTransaction(account) {
@@ -132,116 +175,101 @@ async function receiveTransaction(account) {
 
 const selectAccount = account => {
   setSelectedAccount(account);
+  getBalance(account);
+  getTokens(account); 
 }
+
+async function convertToBuffer (reader)  {
+  //  file is converted to a buffer for upload to IPFS
+      const buffer = await Buffer.from(reader.result);
+      await setFileBuffer(buffer);
+  };
+
+function captureFile (e)  {
+  e.stopPropagation()
+  e.preventDefault()
+  const file = e.target.files[0]
+  console.log(file);
+  let reader = new window.FileReader()
+  reader.readAsArrayBuffer(file)
+  reader.onloadend = () => convertToBuffer(reader)  
+  };
+
 useEffect(() => {
   const init = async () => {
-    console.log(selectedAccount);
     setSelectedAccount(accounts[0]);
-    getterValues(accounts[0]);
-
+    getBalance(accounts[0]);
+    getTokens(accounts[0]);
+    getAllTokens();
   }
   init();
-
 }, []);
-
 
 if(typeof selectedAccount === 'undefined') {
   return <div>Loading...</div>
 }
 
+
+
   return (
     <div id="app">
       <Header
-          contract={CONTRACT.address}
+          contract={contract.address}
           accounts={accounts}
           selectedAccount={selectedAccount}
+          balance={balance}
           selectAccount={selectAccount}
       />
-      <main className="container-fluid">
-        <div className="row">
-          <div className="col-sm- first-col">
-          <button 
-                  onClick={e => createToken()}
-                  type="submit" 
-                  className="btn btn-primary"
-                >
-                  Create Token
-            </button>  
-          </div>
-        
-        <div className="col-sm-8">
-          <h2>Transfer token</h2>
-          <form onSubmit={e => transfer(e)}>
-            <div className="form-group">
-              <input 
-                placeholder="from"
-                className="mt-8 border rounded p-4"
-                type="text" 
-                id="from" 
-                />
-            </div>
-            <div className="form-group">
-              <input 
-                placeholder="to"
-                className="mt-8 border rounded p-4"
-                type="text" 
-                id="to" 
-                />
-            </div>
-            <div className="form-group">
-              <input 
-                placeholder="tokenId"
-                className="mt-8 border rounded p-4"
-                type="text" 
-                id="tokenId" />
-            </div>
-            <button type="submit" className="btn btn-primary">transfer</button>
-          </form>
-        </div>
-
-        <div className="col-sm-12">
-          <h2>Approve token</h2>
-          <form onSubmit={e => approve(e)}>
-            <div className="form-group">
-              <input 
-                placeholder="approved address"
-                className="mt-8 border rounded p-4"
-                type="text" 
-                id="from" 
-                />
-            </div>
-            <div className="form-group">
-              <input 
-                placeholder="tokenId"
-                className="mt-8 border rounded p-4"
-                type="text" 
-                id="tokenId" />
-            </div>
-            <button type="submit" className="btn btn-primary">approve</button>
-          </form>
-        </div>
+      <div className="buttons-container">
+        <button onClick={() => {
+          setHiddenForms({
+            createTokenForm: !hiddenForms.createTokenForm,
+            myTokensForm: true,
+            allTokensForm: true
+          });
+        }}>
+          Create Token
+        </button>
+        <button onClick={() => {
+          setHiddenForms({
+            myTokensForm: !hiddenForms.myTokensForm,
+            createTokenForm: true,
+            allTokensForm: true
+          });
+        }}>
+          My Tokens
+        </button>
+        <button onClick={() => {
+          setHiddenForms({
+            createTokenForm: true,
+            myTokensForm: true,
+            allTokensForm: !hiddenForms. allTokensForm
+          });
+        }}>
+          All tokens
+        </button>
       </div>
-       
-      {num > 0 ? (
-        <p>NFTTokens: {num}</p>
-      ) : null}
-      <button 
-        type="button" 
-        onClick={() => getterValues(selectedAccount)}
-        >My balance
-      </button>
-      <h2>Approve token</h2>
-          <form onSubmit={e => getOwner(e)}>
-            <div className="form-group">
-              <input 
-                placeholder="tokenId"
-                className="mt-8 border rounded p-4"
-                type="text" 
-                id="tokenId" />
-            </div>
-            <button type="submit" className="btn btn-primary">Owner of token</button>
-          </form>
-          </main>
+
+
+      <CreateToken
+        className={hiddenForms.createTokenForm ? 'hidden' : ''}
+        createMetaToken={createMetaToken}
+        captureFile={captureFile}
+        />
+      <MyTokens
+        className={hiddenForms.myTokensForm ? 'hidden' : ''}
+        tokens={tokens}
+        transfer={transfer}
+        approve={approve}
+        />
+      <AllTokens
+        className={hiddenForms.allTokensForm ? 'hidden' : ''}
+        allTokens={allTokens}
+        transfer={transfer}
+        approve={approve}
+      />
+
+                
     </div>
   );
 }

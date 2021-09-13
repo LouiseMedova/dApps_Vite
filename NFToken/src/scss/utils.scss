@@ -10,6 +10,13 @@ $fontSmall: 14px;
 .flex {
   display: flex;
 }
+.visible {
+  visibility: visible;
+}
+.invisible {
+  visibility: hidden;
+}
+
 
 @media (min-width: 576px) {
   .first-col {
